@@ -27,6 +27,20 @@ _MONTHLY_REVENUE_QUERY = text("""
 """)
 
 
+_MONTHLY_BREAKDOWN_QUERY = text("""
+    SELECT
+        EXTRACT(YEAR FROM (check_in_date AT TIME ZONE :tz))::int AS y,
+        EXTRACT(MONTH FROM (check_in_date AT TIME ZONE :tz))::int AS m,
+        SUM(total_amount) AS total,
+        COUNT(*) AS count
+    FROM reservations
+    WHERE property_id = :property_id
+      AND tenant_id = :tenant_id
+    GROUP BY y, m
+    ORDER BY y, m
+""")
+
+
 def _month_bounds(month: int, year: int, tz: ZoneInfo) -> tuple[datetime, datetime]:
     """Build a [start, end) window covering `month`/`year` in `tz`."""
     start = datetime(year, month, 1, tzinfo=tz)
@@ -34,6 +48,53 @@ def _month_bounds(month: int, year: int, tz: ZoneInfo) -> tuple[datetime, dateti
     end_month = 1 if month == 12 else month + 1
     end = datetime(end_year, end_month, 1, tzinfo=tz)
     return start, end
+
+
+async def calculate_monthly_breakdown(
+    property_id: str, tenant_id: str
+) -> list[Dict[str, Any]]:
+    """Return per-month revenue buckets for a property in its local timezone.
+    Only months with activity are returned."""
+    from app.core.database_pool import DatabasePool
+
+    db_pool = DatabasePool()
+    await db_pool.initialize()
+
+    if not db_pool.session_factory:
+        logger.error("Revenue: database pool unavailable for %s/%s", property_id, tenant_id)
+        raise HTTPException(status_code=503, detail="Revenue service unavailable")
+
+    try:
+        session = await db_pool.get_session()
+        async with session:
+            tz_result = await session.execute(
+                _PROPERTY_TZ_QUERY,
+                {"property_id": property_id, "tenant_id": tenant_id},
+            )
+            tz_row = tz_result.fetchone()
+            if tz_row is None:
+                raise HTTPException(status_code=404, detail="Property not found")
+
+            tz_name = tz_row.timezone or "UTC"
+            rows = (
+                await session.execute(
+                    _MONTHLY_BREAKDOWN_QUERY,
+                    {"property_id": property_id, "tenant_id": tenant_id, "tz": tz_name},
+                )
+            ).fetchall()
+    except SQLAlchemyError as exc:
+        logger.error("Revenue: DB error for %s/%s breakdown: %s", property_id, tenant_id, exc)
+        raise HTTPException(status_code=503, detail="Revenue service unavailable")
+
+    return [
+        {
+            "year": r.y,
+            "month": r.m,
+            "total": str(Decimal(str(r.total))),
+            "count": r.count,
+        }
+        for r in rows
+    ]
 
 
 async def calculate_monthly_revenue(

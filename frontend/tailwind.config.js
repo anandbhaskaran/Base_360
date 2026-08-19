@@ -5,6 +5,16 @@ export default {
     extend: {
       colors: {
         primary: '#064749',
+        ink: '#0C0A09',
+        paper: '#FAFAF9',
+        rule: '#E7E5E4',
+        meta: '#78716C',
+        tag: '#F5F5F4',
+      },
+      fontFamily: {
+        sans: ['"IBM Plex Sans"', 'system-ui', 'sans-serif'],
+        serif: ['"IBM Plex Serif"', 'Georgia', 'serif'],
+        mono: ['"IBM Plex Mono"', 'ui-monospace', 'monospace'],
       },
       animation: {
         'ping-slow': 'ping 2s cubic-bezier(0, 0, 0.2, 1) infinite',

@@ -34,3 +34,17 @@ async def get_revenue_summary(
 
     await redis_client.setex(cache_key, 300, json.dumps(result))
     return result
+
+
+async def get_revenue_breakdown(property_id: str, tenant_id: str) -> list:
+    """Fetch the monthly-breakdown series for a property, tenant-scoped cache."""
+    cache_key = f"revenue:{tenant_id}:{property_id}:breakdown"
+    cached = await redis_client.get(cache_key)
+    if cached:
+        return json.loads(cached)
+
+    from app.services.reservations import calculate_monthly_breakdown
+
+    result = await calculate_monthly_breakdown(property_id, tenant_id)
+    await redis_client.setex(cache_key, 300, json.dumps(result))
+    return result

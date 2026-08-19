@@ -76,6 +76,47 @@ def test_calculate_monthly_revenue_uses_property_timezone_bounds():
     assert result["count"] == 1
 
 
+def test_calculate_monthly_breakdown_bucketises_by_property_timezone():
+    """Breakdown must group by (year, month) in property-local time and
+    only return months that actually have activity, tenant-scoped."""
+    from app.services import reservations
+
+    captured = {}
+
+    async def execute(query, params):
+        q = str(query)
+        if "properties" in q.lower():
+            row = MagicMock()
+            row.timezone = "Europe/Paris"
+            result = MagicMock()
+            result.fetchone = MagicMock(return_value=row)
+            return result
+        # breakdown query
+        captured["breakdown_params"] = params
+        captured["breakdown_sql"] = q
+        r1 = MagicMock(y=2024, m=3, total=Decimal("2250.000"), count=4)
+        r2 = MagicMock(y=2024, m=4, total=Decimal("500.000"), count=1)
+        result = MagicMock()
+        result.fetchall = MagicMock(return_value=[r1, r2])
+        return result
+
+    pool = _fake_pool_with_session(execute)
+
+    with patch("app.core.database_pool.DatabasePool", return_value=pool):
+        buckets = asyncio.run(
+            reservations.calculate_monthly_breakdown("prop-001", "tenant-a")
+        )
+
+    assert captured["breakdown_params"]["tenant_id"] == "tenant-a"
+    assert captured["breakdown_params"]["property_id"] == "prop-001"
+    assert captured["breakdown_params"]["tz"] == "Europe/Paris"
+    assert "AT TIME ZONE" in captured["breakdown_sql"]
+    assert buckets == [
+        {"year": 2024, "month": 3, "total": "2250.000", "count": 4},
+        {"year": 2024, "month": 4, "total": "500.000", "count": 1},
+    ]
+
+
 def test_calculate_monthly_revenue_handles_december_year_rollover():
     """December → January bounds must roll the year forward."""
     from app.services import reservations

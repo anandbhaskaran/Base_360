@@ -1449,9 +1449,18 @@ export class SecureAPIClient {
   }
 
   // ============= DASHBOARD API =============
-  async getDashboardSummary(propertyId: string) {
+  async getDashboardSummary(propertyId: string, month?: number, year?: number) {
     const queryParams = new URLSearchParams({ property_id: propertyId });
+    if (month !== undefined && year !== undefined) {
+      queryParams.append('month', String(month));
+      queryParams.append('year', String(year));
+    }
     return this.request<any>(`/api/v1/dashboard/summary?${queryParams}`);
+  }
+
+  async getDashboardBreakdown(propertyId: string) {
+    const queryParams = new URLSearchParams({ property_id: propertyId });
+    return this.request<any>(`/api/v1/dashboard/breakdown?${queryParams}`);
   }
 
   async uploadCompanyLogo(logo_url: string) {
