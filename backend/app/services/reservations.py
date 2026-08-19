@@ -2,6 +2,7 @@ import logging
 from datetime import datetime
 from decimal import Decimal
 from typing import Dict, Any
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 from sqlalchemy import text
@@ -9,34 +10,90 @@ from sqlalchemy.exc import SQLAlchemyError
 
 logger = logging.getLogger(__name__)
 
-async def calculate_monthly_revenue(property_id: str, month: int, year: int, db_session=None) -> Decimal:
-    """
-    Calculates revenue for a specific month.
-    """
 
-    start_date = datetime(year, month, 1)
-    if month < 12:
-        end_date = datetime(year, month + 1, 1)
-    else:
-        end_date = datetime(year + 1, 1, 1)
-        
-    print(f"DEBUG: Querying revenue for {property_id} from {start_date} to {end_date}")
+_PROPERTY_TZ_QUERY = text(
+    "SELECT timezone FROM properties WHERE id = :property_id AND tenant_id = :tenant_id"
+)
 
-    # SQL Simulation (This would be executed against the actual DB)
-    query = """
-        SELECT SUM(total_amount) as total
-        FROM reservations
-        WHERE property_id = $1
-        AND tenant_id = $2
-        AND check_in_date >= $3
-        AND check_in_date < $4
-    """
-    
-    # In production this query executes against a database session.
-    # result = await db.fetch_val(query, property_id, tenant_id, start_date, end_date)
-    # return result or Decimal('0')
-    
-    return Decimal('0') # Placeholder for now until DB connection is finalized
+_MONTHLY_REVENUE_QUERY = text("""
+    SELECT
+        SUM(total_amount) AS total_revenue,
+        COUNT(*) AS reservation_count
+    FROM reservations
+    WHERE property_id = :property_id
+      AND tenant_id = :tenant_id
+      AND check_in_date >= :start
+      AND check_in_date < :end
+""")
+
+
+def _month_bounds(month: int, year: int, tz: ZoneInfo) -> tuple[datetime, datetime]:
+    """Build a [start, end) window covering `month`/`year` in `tz`."""
+    start = datetime(year, month, 1, tzinfo=tz)
+    end_year = year + (1 if month == 12 else 0)
+    end_month = 1 if month == 12 else month + 1
+    end = datetime(end_year, end_month, 1, tzinfo=tz)
+    return start, end
+
+
+async def calculate_monthly_revenue(
+    property_id: str, tenant_id: str, month: int, year: int
+) -> Dict[str, Any]:
+    """Aggregate revenue for a property in a specific month, using the
+    property's local timezone for the month boundaries."""
+    from app.core.database_pool import DatabasePool
+
+    db_pool = DatabasePool()
+    await db_pool.initialize()
+
+    if not db_pool.session_factory:
+        logger.error("Revenue: database pool unavailable for %s/%s", property_id, tenant_id)
+        raise HTTPException(status_code=503, detail="Revenue service unavailable")
+
+    try:
+        session = await db_pool.get_session()
+        async with session:
+            tz_result = await session.execute(
+                _PROPERTY_TZ_QUERY,
+                {"property_id": property_id, "tenant_id": tenant_id},
+            )
+            tz_row = tz_result.fetchone()
+            if tz_row is None:
+                raise HTTPException(status_code=404, detail="Property not found")
+
+            tz = ZoneInfo(tz_row.timezone or "UTC")
+            start, end = _month_bounds(month, year, tz)
+
+            sum_result = await session.execute(
+                _MONTHLY_REVENUE_QUERY,
+                {
+                    "property_id": property_id,
+                    "tenant_id": tenant_id,
+                    "start": start,
+                    "end": end,
+                },
+            )
+            row = sum_result.fetchone()
+    except SQLAlchemyError as exc:
+        logger.error("Revenue: DB error for %s/%s %d-%d: %s", property_id, tenant_id, year, month, exc)
+        raise HTTPException(status_code=503, detail="Revenue service unavailable")
+
+    if row is None or row.total_revenue is None:
+        return {
+            "property_id": property_id,
+            "tenant_id": tenant_id,
+            "total": "0.00",
+            "currency": "USD",
+            "count": row.reservation_count if row else 0,
+        }
+
+    return {
+        "property_id": property_id,
+        "tenant_id": tenant_id,
+        "total": str(Decimal(str(row.total_revenue))),
+        "currency": "USD",
+        "count": row.reservation_count,
+    }
 
 _REVENUE_QUERY = text("""
     SELECT

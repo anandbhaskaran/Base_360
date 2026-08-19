@@ -25,7 +25,7 @@ Symptom → bug map:
 
 ## P1 — High (direct client complaint or silent data corruption)
 
-### P1-1. `/dashboard/summary` returns lifetime revenue, not "March"
+### P1-1. `/dashboard/summary` returns lifetime revenue, not "March" - FIXED
 - **File**: `backend/app/api/v1/dashboard.py:8-25` + `backend/app/services/reservations.py:51-59`
 - **Root cause**: `calculate_total_revenue` has NO date filter. Endpoint accepts no `month`/`year` params. The dashboard shows all-time totals but the client thinks they're seeing March. `calculate_monthly_revenue` exists but is a stub (`return Decimal('0')`) and is not wired to anything.
 - **Fix**:
@@ -66,7 +66,7 @@ Symptom → bug map:
 - **Root cause**: Even after P2-1, if the API returns a JS `number` at all, `4523.6749999999997 * 100 = 452367.49999999994` → `Math.round` → 452367 → `/100` → 4523.67 (right by luck). Any value that lands the other side of `.5` rounds the wrong way.
 - **Fix**: change `RevenueData.total_revenue` to `string`. Render with `Intl.NumberFormat(locale, { style: 'currency', currency: data.currency, minimumFractionDigits: 2, maximumFractionDigits: 2 })` fed from the string or minor-units. Drop `Math.round`.
 
-### P2-3. `calculate_monthly_revenue` uses naive UTC month bounds, ignores property timezone
+### P2-3. `calculate_monthly_revenue` uses naive UTC month bounds, ignores property timezone - FIXED (with P1-1)
 - **File**: `backend/app/services/reservations.py:5-32`
 - **Root cause**: `datetime(year, month, 1)` is naive. `res-tz-1` (`2024-02-29 23:30:00+00`, `prop-001/tenant-a`, `Europe/Paris`) is March 1 00:30 in Paris but Feb 29 in UTC. A naive-UTC filter puts it in February; Paris-based clients expect it in March. Function is currently dead code (a stub) but will bite as soon as P1-1 is implemented.
 - **Fix**:
