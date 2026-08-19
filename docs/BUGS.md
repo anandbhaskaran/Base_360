@@ -11,7 +11,7 @@ Symptom → bug map:
 
 ## P0 — Critical (ship-blocker)
 
-### P0-1. Redis cache key omits tenant_id → cross-tenant revenue leak
+### P0-1. Redis cache key omits tenant_id → cross-tenant revenue leak - FIXED
 - **File**: `backend/app/services/cache.py:13`
 - **Root cause**: `cache_key = f"revenue:{property_id}"`. `prop-001` exists for BOTH `tenant-a` (Beach House Alpha) and `tenant-b` (Mountain Lodge Beta) (`database/seed.sql:8-9`). First tenant populates `revenue:prop-001` for 300s; every other tenant querying the same property_id gets a cache HIT with the first tenant's numbers.
 - **Repro**: flush Redis → login as `sunset@` → GET `/api/v1/dashboard/summary?property_id=prop-001` (caches tenant-a's $2,250) → login as `ocean@` within 5min → GET same → sees tenant-a's $2,250 instead of tenant-b's Mountain Lodge total.
@@ -34,7 +34,7 @@ Symptom → bug map:
   3. Thread month/year into cache key: `revenue:{tenant_id}:{property_id}:{year}-{month}`.
   4. If month/year omitted, return `period: 'lifetime'` explicitly in the response so no one confuses lifetime for a month.
 
-### P1-2. Silent mock fallback fabricates wrong totals on any DB error
+### P1-2. Silent mock fallback fabricates wrong totals on any DB error - FIXED
 - **File**: `backend/app/services/reservations.py:88-109`
 - **Root cause**: bare `except Exception` swallows every DB error and returns hardcoded per-property totals (e.g. `prop-001 → $1,000.00`) that don't match real data. Finance can't distinguish "DB down" from "real number". Compounds P0-1: mocks get cached under the shared key.
 - **Fix**: delete the mock branch. On DB failure `raise HTTPException(503, 'Revenue service unavailable')`. Never cache error responses. If mocks are needed for local dev, gate on `settings.env == 'local'` and set `data_source: 'mock'` in the response so the UI can badge it. Narrow the `except` to `SQLAlchemyError`.
