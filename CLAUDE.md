@@ -58,3 +58,10 @@ This is the whole "revenue" surface. `main.py` mounts many other routers (`users
 - Backend logging: `logger = logging.getLogger(__name__)`. Emoji prefixes (`✅`, `🔄`) are common in `main.py` startup logs; keep the style if editing there.
 - Frontend uses camelCase; backend uses snake_case. `app/utils/camel.py` and `frontend/src/utils/camel.ts` handle conversion at the API boundary.
 - Pre-commit runs ruff (`--fix`), prettier, and eslint. Conventional commit prefix required: `feat|fix|ci|chore|test|infra|refactor`.
+
+## How to work here
+
+- **New code**: invoke the `tdd` skill (write failing test first, then minimal code to pass). No exceptions.
+- **Cleanup**: invoke the `simplify` skill on changed code only. Do not run it over the whole repo.
+- **Scout rule, bounded**: leave the file you touched slightly cleaner (obvious rename, dead-import removal, one clarifying comment). Do NOT refactor neighboring code, restructure modules, or introduce abstractions for future flexibility. If the cleanup is bigger than the fix itself, skip it and note it in the PR.
+- **No over-engineering**: no new layers, no config-driven variants, no premature helpers. Three similar lines beat a bad abstraction. Delete before you add.
