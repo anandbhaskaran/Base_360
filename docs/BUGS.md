@@ -39,7 +39,7 @@ Symptom → bug map:
 - **Root cause**: bare `except Exception` swallows every DB error and returns hardcoded per-property totals (e.g. `prop-001 → $1,000.00`) that don't match real data. Finance can't distinguish "DB down" from "real number". Compounds P0-1: mocks get cached under the shared key.
 - **Fix**: delete the mock branch. On DB failure `raise HTTPException(503, 'Revenue service unavailable')`. Never cache error responses. If mocks are needed for local dev, gate on `settings.env == 'local'` and set `data_source: 'mock'` in the response so the UI can badge it. Narrow the `except` to `SQLAlchemyError`.
 
-### P1-3. Shipped dev backdoor: `X-Simulated-Tenant` header from a client-controlled prop
+### P1-3. Shipped dev backdoor: `X-Simulated-Tenant` header from a client-controlled prop - FIXED
 - **File**: `frontend/src/components/RevenueSummary.tsx:22, 30-33` + `frontend/src/lib/secureApi.ts:1455-1469`
 - **Root cause**: `RevenueSummary` accepts a `debugTenant` prop and forwards it as `X-Simulated-Tenant` on every dashboard call. Even though the backend today reads tenant from the JWT, any future middleware honoring this header is an instant cross-tenant impersonation from the browser. The default value `'candidate'` also ships in production traffic.
 - **Fix**:
@@ -93,7 +93,7 @@ Symptom → bug map:
 - **Root cause**: `getattr(current_user, "tenant_id", "default_tenant") or "default_tenant"` silently coerces missing tenants into a shared bucket, AND the handler never checks that `property_id` exists under `tenant_id`. Combined with P0-1 this lets `prop-001` traffic mix even at the DB layer.
 - **Fix**: refuse when tenant_id is falsy (`raise HTTPException(401)`). Query `properties WHERE id=:pid AND tenant_id=:tid`; `raise HTTPException(404)` if not found (404, not 403, to avoid leaking existence across tenants).
 
-### P2-7. `timestamp: Date.now()` cache-buster defeats frontend dedup
+### P2-7. `timestamp: Date.now()` cache-buster defeats frontend dedup - FIXED (with P1-3)
 - **File**: `frontend/src/components/RevenueSummary.tsx:32` + `frontend/src/lib/secureApi.ts:1457-1459`
 - **Root cause**: `SecureAPI.generateCacheKey` includes all query params. Passing a fresh epoch on every render gives every request a unique key → the 5s request cache and pending-request dedup never hit. Doubles backend load on every mount and amplifies the P0-1 window.
 - **Fix**: drop `timestamp: Date.now()` (folds into P1-3's fix). If manual refresh is needed, call the existing `SecureAPI.clearEndpointCache('/dashboard/summary')`.
@@ -138,7 +138,7 @@ Symptom → bug map:
 - **File**: `frontend/src/App.tsx:73-88` + `frontend/src/contexts/AuthContext.new.tsx:267-329`
 - **Fix**: in `signOut`, before the redirect: `await queryClient.clear(); await localforage.clear();`. Extract `queryClient`/`persister` to `src/lib/queryClient.ts` to avoid a circular import from App.
 
-### P3-10. Hardcoded `'candidate'` fallback tenant sent as header
+### P3-10. Hardcoded `'candidate'` fallback tenant sent as header - FIXED (with P1-3)
 - **File**: `frontend/src/components/RevenueSummary.tsx:22`
 - **Fix**: folds into P1-3. Delete line 22.
 
